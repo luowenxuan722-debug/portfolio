@@ -769,7 +769,8 @@ img { display: block; max-width: 100%; }
   color: #626773;
 }
 .pdf-viewer__page[aria-busy="false"] > span { display: none; }
-.pdf-viewer__page canvas {
+.pdf-viewer__page canvas,
+.pdf-viewer__page img {
   position: relative;
   display: block;
   width: 100%;
