@@ -1,6 +1,20 @@
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import previewPages from './pdf-preview-pages.json';
 
-GlobalWorkerOptions.workerSrc = new URL('./assets/pdf.worker.min.mjs', window.location.href).href;
+let enginePromise = null;
+function loadPdfEngine() {
+  if (!enginePromise) enginePromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = new URL('./assets/pdf-engine.bundle.js?v=20261012-pages-1', window.location.href).href;
+    script.onload = () => {
+      const engine = window.PortfolioPdfEngine;
+      engine.GlobalWorkerOptions.workerSrc = new URL('./assets/pdf.worker.min.mjs', window.location.href).href;
+      resolve(engine);
+    };
+    script.onerror = () => { enginePromise = null; script.remove(); reject(new Error('PDF engine unavailable')); };
+    document.head.append(script);
+  });
+  return enginePromise;
+}
 
 const viewer = document.querySelector('[data-pdf-viewer]');
 const canvasWrap = document.querySelector('[data-pdf-canvas-wrap]');
@@ -54,6 +68,13 @@ function setStatus(message = '', mode = 'loading') {
 function releasePage(record) {
   pendingPages.delete(record);
   record.version += 1;
+  record.cancelLoad?.();
+  record.cancelLoad = null;
+  if (record.image) {
+    record.image.removeAttribute('src');
+    record.image.remove();
+    record.image = null;
+  }
   record.task?.cancel();
   record.task = null;
   if (record.canvas) {
@@ -66,6 +87,7 @@ function releasePage(record) {
 }
 
 async function renderPage(record, loadedPage = null) {
+  if (record.preview) return renderPreviewPage(record);
   if (!pdfDocument || record.rendering || record.canvas) return;
   const sequence = renderSequence;
   const version = record.version;
@@ -102,6 +124,76 @@ async function renderPage(record, loadedPage = null) {
   }
 }
 
+async function renderPreviewPage(record) {
+  if (record.rendering || record.canvas) return;
+  const sequence = renderSequence;
+  const version = record.version;
+  record.rendering = true;
+  const image = new Image();
+  record.image = image;
+  image.alt = `PDF 第 ${record.number} 页`;
+  image.width = record.preview.width;
+  image.height = record.preview.height;
+  image.decoding = 'async';
+  image.fetchPriority = record.number === 1 ? 'high' : 'low';
+  try {
+    const loaded = await new Promise((resolve, reject) => {
+      record.cancelLoad = () => { image.onload = image.onerror = null; resolve(false); };
+      image.onload = () => resolve(true);
+      image.onerror = () => reject(new Error('Page image unavailable'));
+      image.src = record.preview.src;
+    });
+    if (!loaded || sequence !== renderSequence || version !== record.version) return;
+    record.canvas = image;
+    record.node.append(image);
+    record.node.setAttribute('aria-busy', 'false');
+    return true;
+  } catch {
+    if (sequence !== renderSequence || version !== record.version) return;
+    record.node.querySelector('span').textContent = `第 ${record.number} 页加载失败，可下载 PDF 查看。`;
+  } finally {
+    if (sequence === renderSequence) {
+      record.cancelLoad = null;
+      record.rendering = false;
+      if (version !== record.version && record.nearby) queuePage(record);
+    }
+  }
+}
+
+async function loadIndependentPages(previews, sequence) {
+  const fragment = document.createDocumentFragment();
+  previews.forEach((preview, index) => {
+    const number = index + 1;
+    const node = document.createElement('div');
+    node.className = 'pdf-viewer__page';
+    node.dataset.pageNumber = number;
+    node.style.aspectRatio = `${preview.width} / ${preview.height}`;
+    node.setAttribute('role', 'group');
+    node.setAttribute('aria-label', `第 ${number} 页，共 ${previews.length} 页`);
+    node.setAttribute('aria-busy', 'true');
+    const placeholder = document.createElement('span');
+    placeholder.textContent = number === 1 ? '正在加载第 1 页…' : `第 ${number} 页，滚动到附近时加载`;
+    node.append(placeholder);
+    pages.push({ number, node, preview, nearby: false, version: 0, canvas: null, image: null, task: null, rendering: false });
+    fragment.append(node);
+  });
+  canvasWrap.append(fragment);
+  setStatus();
+  pages[0].nearby = true;
+  await renderPage(pages[0]);
+  if (sequence !== renderSequence) return;
+  pageObserver = new IntersectionObserver(entries => {
+    if (sequence !== renderSequence) return;
+    entries.forEach(entry => {
+      const record = pages[Number(entry.target.dataset.pageNumber) - 1];
+      record.nearby = entry.isIntersecting;
+      if (record.nearby) queuePage(record);
+      else releasePage(record);
+    });
+  }, { root: canvasWrap, rootMargin: '50% 0px' });
+  pages.forEach(record => pageObserver.observe(record.node));
+}
+
 function clearDocument() {
   renderSequence += 1;
   pendingPages.clear();
@@ -122,6 +214,17 @@ async function loadPdf(url) {
   setStatus('正在加载 PDF…');
 
   try {
+    const requested = new URL(url, window.location.href);
+    const previewKey = Object.keys(previewPages).find(key => {
+      const known = new URL(key, window.location.href);
+      return known.origin === requested.origin && known.pathname === requested.pathname;
+    });
+    if (previewKey) {
+      await loadIndependentPages(previewPages[previewKey], sequence);
+      return;
+    }
+    const { getDocument } = await loadPdfEngine();
+    if (sequence !== renderSequence) return;
     documentTask = getDocument({
       url,
       rangeChunkSize: pdfRangeChunkSize,

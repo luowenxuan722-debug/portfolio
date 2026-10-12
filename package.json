@@ -2,7 +2,7 @@
 	"scripts": {
 		"build:nav": "esbuild src/pill-nav-entry.js --bundle --format=iife --target=es2020 --outfile=dist/assets/pill-nav.bundle.js --minify",
 		"build:bento": "esbuild src/magic-bento-entry.js --bundle --format=iife --target=es2020 --outfile=dist/assets/magic-bento.bundle.js --minify",
-		"build:pdf": "esbuild src/pdf-viewer-entry.js --bundle --format=iife --target=es2020 --outfile=dist/assets/pdf-viewer.bundle.js --minify",
+		"build:pdf": "esbuild src/pdf-engine-entry.js --bundle --format=iife --global-name=PortfolioPdfEngine --target=es2020 --outfile=dist/assets/pdf-engine.bundle.js --minify && esbuild src/pdf-viewer-entry.js --bundle --format=iife --target=es2020 --outfile=dist/assets/pdf-viewer.bundle.js --minify",
 		"build:carousel": "esbuild src/carousel-entry.jsx --bundle --format=iife --target=es2020 --outfile=dist/assets/flex-carousel.bundle.js --minify"
 	},
 	"dependencies": {
