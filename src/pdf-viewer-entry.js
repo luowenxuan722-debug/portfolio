@@ -14,6 +14,7 @@ let pdfDocument = null;
 let pageObserver = null;
 let pages = [];
 let currentUrl = '';
+let currentDownloadUrl = '';
 let currentTitle = '';
 let lastTrigger = null;
 let renderSequence = 0;
@@ -128,28 +129,43 @@ async function loadPdf(url) {
   }
 }
 
-function httpPreviewUrl(url, title) {
+function httpPreviewUrl(url, downloadUrl, title) {
   const target = new URL('http://127.0.0.1:4173/');
   target.searchParams.set('pdf', url.replace(/^\.\//, ''));
+  target.searchParams.set('pdfDownload', (downloadUrl || url).replace(/^\.\//, ''));
   target.searchParams.set('pdfTitle', title);
   target.hash = 'work';
   return target.href;
 }
 
-function openPdfPreview(url, title, trigger = null) {
+function openPdfPreview(url, title, trigger = null, downloadUrl = url) {
   if (!url || !(viewer instanceof HTMLElement)) return;
   if (window.location.protocol === 'file:') {
-    window.location.href = httpPreviewUrl(url, title || '作品集');
+    window.location.href = httpPreviewUrl(url, downloadUrl, title || '作品集');
     return;
   }
 
   currentUrl = url;
+  currentDownloadUrl = downloadUrl || url;
   currentTitle = title || '作品集';
   lastTrigger = trigger instanceof HTMLElement ? trigger : document.activeElement;
   if (titleNode) titleNode.textContent = currentTitle;
   if (downloadLink instanceof HTMLAnchorElement) {
-    downloadLink.href = currentUrl;
-    downloadLink.download = `${currentTitle}.pdf`;
+    downloadLink.href = currentDownloadUrl;
+    const downloadTarget = new URL(currentDownloadUrl, window.location.href);
+    const externalDownload = downloadTarget.origin !== window.location.origin;
+    if (externalDownload) {
+      downloadLink.removeAttribute('download');
+      downloadLink.target = '_blank';
+      downloadLink.rel = 'noopener noreferrer';
+      const code = downloadTarget.searchParams.get('pwd');
+      downloadLink.textContent = code ? `下载pdf（提取码：${code}）` : '下载pdf';
+    } else {
+      downloadLink.download = `${currentTitle}.pdf`;
+      downloadLink.removeAttribute('target');
+      downloadLink.removeAttribute('rel');
+      downloadLink.textContent = '下载pdf';
+    }
   }
   viewer.classList.add('is-open');
   viewer.setAttribute('aria-hidden', 'false');
@@ -171,13 +187,18 @@ function closePdfPreview() {
 document.querySelectorAll('[data-pdf-preview]').forEach((trigger) => {
   trigger.addEventListener('click', (event) => {
     event.preventDefault();
-    openPdfPreview(trigger.dataset.pdfPreview || '', trigger.dataset.pdfTitle || '作品集', trigger);
+    openPdfPreview(
+      trigger.dataset.pdfPreview || '',
+      trigger.dataset.pdfTitle || '作品集',
+      trigger,
+      trigger.dataset.pdfDownloadUrl || trigger.dataset.pdfPreview || ''
+    );
   });
 });
 
 window.addEventListener('portfolio:open-pdf', (event) => {
   const detail = event.detail || {};
-  openPdfPreview(detail.url || '', detail.title || '作品集');
+  openPdfPreview(detail.url || '', detail.title || '作品集', null, detail.downloadUrl || detail.url || '');
 });
 
 closeButton?.addEventListener('click', closePdfPreview);
@@ -206,5 +227,6 @@ const search = new URLSearchParams(window.location.search);
 const requestedPdf = search.get('pdf');
 if (requestedPdf) {
   const requestedTitle = search.get('pdfTitle') || '作品集';
-  window.setTimeout(() => openPdfPreview(`./${requestedPdf}`, requestedTitle), 0);
+  const requestedDownload = search.get('pdfDownload') || requestedPdf;
+  window.setTimeout(() => openPdfPreview(`./${requestedPdf}`, requestedTitle, null, `./${requestedDownload}`), 0);
 }
