@@ -967,8 +967,8 @@ img { display: block; max-width: 100%; }
 .software-mark {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  width: 64px;
+  height: 64px;
   color: var(--accent);
   background: rgb(91 140 255 / 9%);
   border: 1px solid rgb(91 140 255 / 42%);
@@ -977,6 +977,14 @@ img { display: block; max-width: 100%; }
   font-size: 1rem;
   font-weight: 500;
   letter-spacing: -.03em;
+}
+.software-mark--image {
+  display: block;
+  object-fit: contain;
+  object-position: center;
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
 }
 .magic-bento-particle {
   position: absolute;

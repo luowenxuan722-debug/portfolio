@@ -82,14 +82,16 @@ if (characterVideo instanceof HTMLVideoElement) {
   let lastSeekFrame = 0;
   let lastSeekAt = 0;
   const frameRate = 24;
+  let isInitialized = false;
 
-  characterVideo.addEventListener('loadeddata', () => {
-    characterVideo.currentTime = 0;
+  function initializeCharacterVideo() {
+    if (isInitialized || characterVideo.readyState < HTMLMediaElement.HAVE_METADATA || !Number.isFinite(characterVideo.duration)) return;
+    isInitialized = true;
+    currentTime = Math.min(characterVideo.currentTime || 0, characterVideo.duration);
+    targetTime = timeForPointer(pointerX, pointerY);
     characterVideo.classList.add('is-ready');
-    if (targetTime) {
-      pointerFrame = window.requestAnimationFrame(updateLookDirection);
-    }
-  }, { once: true });
+    if (!pointerFrame) pointerFrame = window.requestAnimationFrame(updateLookDirection);
+  }
 
   function timeForPointer(x, y) {
     const dx = (x - window.innerWidth / 2) / Math.max(window.innerWidth / 2, 1);
@@ -113,7 +115,7 @@ if (characterVideo instanceof HTMLVideoElement) {
 
   function updateLookDirection() {
     pointerFrame = 0;
-    if (characterVideo.readyState < HTMLMediaElement.HAVE_METADATA || !characterVideo.duration) return;
+    if (!isInitialized || characterVideo.readyState < HTMLMediaElement.HAVE_METADATA || !characterVideo.duration) return;
 
     const duration = characterVideo.duration;
     const delta = ((targetTime - currentTime + duration * 1.5) % duration) - duration / 2;
@@ -132,12 +134,14 @@ if (characterVideo instanceof HTMLVideoElement) {
     }
   }
 
-  window.addEventListener('pointermove', (event) => {
+  function handlePointerMove(event) {
     pointerX = event.clientX;
     pointerY = event.clientY;
     targetTime = timeForPointer(pointerX, pointerY);
     if (!pointerFrame) pointerFrame = window.requestAnimationFrame(updateLookDirection);
-  }, { passive: true });
+  }
+
+  window.addEventListener('pointermove', handlePointerMove, { passive: true });
 
   document.documentElement.addEventListener('pointerleave', () => {
     pointerX = window.innerWidth / 2;
@@ -145,4 +149,14 @@ if (characterVideo instanceof HTMLVideoElement) {
     targetTime = 0;
     if (!pointerFrame) pointerFrame = window.requestAnimationFrame(updateLookDirection);
   });
+
+  characterVideo.addEventListener('loadedmetadata', initializeCharacterVideo, { once: true });
+  characterVideo.addEventListener('loadeddata', initializeCharacterVideo, { once: true });
+  characterVideo.addEventListener('canplay', initializeCharacterVideo, { once: true });
+
+  if (characterVideo.readyState >= HTMLMediaElement.HAVE_METADATA) {
+    initializeCharacterVideo();
+  } else {
+    characterVideo.load();
+  }
 }
